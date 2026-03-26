@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/emersion/go-imap"
@@ -16,46 +17,141 @@ import (
 	"golang.org/x/net/html/charset"
 )
 
+type ScanProgress struct {
+	mu        sync.RWMutex
+	Running   bool   `json:"running"`
+	Paused    bool   `json:"paused"`
+	Total     int    `json:"total"`
+	Processed int    `json:"processed"`
+	Saved     int    `json:"saved"`
+	Account   string `json:"account"`
+}
+
+var Progress = &ScanProgress{}
+
+func waitIfPaused() {
+	for {
+		Progress.mu.RLock()
+		paused := Progress.Paused
+		Progress.mu.RUnlock()
+		if !paused {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
 func init() {
 	message.CharsetReader = func(charsetStr string, input io.Reader) (io.Reader, error) {
 		return charset.NewReaderLabel(charsetStr, input)
 	}
 }
 
+type inboxAccount struct {
+	host  string
+	user  string
+	pass  string
+	label string
+}
+
+func getConfiguredAccounts() []inboxAccount {
+	var accounts []inboxAccount
+
+	if u, p := os.Getenv("GMAIL_USER"), os.Getenv("GMAIL_PASS"); u != "" && p != "" {
+		accounts = append(accounts, inboxAccount{
+			host:  "imap.gmail.com:993",
+			user:  u,
+			pass:  p,
+			label: "Gmail",
+		})
+	}
+
+	if u, p := os.Getenv("OUTLOOK_USER"), os.Getenv("OUTLOOK_PASS"); u != "" && p != "" {
+		accounts = append(accounts, inboxAccount{
+			host:  "outlook.office365.com:993",
+			user:  u,
+			pass:  p,
+			label: "Outlook",
+		})
+	}
+
+	return accounts
+}
+
 func CheckInbox() {
-	// Add defer recover to catch any remaining panics
+	CheckInboxSince(time.Time{})
+}
+
+func CheckInboxSince(since time.Time) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("Panic recovered in CheckInbox: %v", r)
+			log.Printf("Panic recovered in CheckInboxSince: %v", r)
 		}
 	}()
 
-	email := os.Getenv("GMAIL_USER")
-	password := os.Getenv("GMAIL_PASS")
+	accounts := getConfiguredAccounts()
+	if len(accounts) == 0 {
+		log.Println("No inbox accounts configured")
+		return
+	}
+
+	Progress.mu.Lock()
+	Progress.Running = true
+	Progress.Paused = false
+	Progress.Total = 0
+	Progress.Processed = 0
+	Progress.Saved = 0
+	Progress.Account = ""
+	Progress.mu.Unlock()
+
+	for _, acc := range accounts {
+		if since.IsZero() {
+			msg := "Checking " + acc.label + " inbox (" + acc.user + ")..."
+			log.Println(msg)
+			LogInfo(msg)
+		} else {
+			msg := "Checking " + acc.label + " inbox (" + acc.user + ") since " + since.Format("2006-01-02") + "..."
+			log.Println(msg)
+			LogInfo(msg)
+		}
+		checkInboxForAccount(acc, since)
+	}
+
+	Progress.mu.Lock()
+	Progress.Running = false
+	Progress.mu.Unlock()
+}
+
+func checkInboxForAccount(acc inboxAccount, since time.Time) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Panic recovered in checkInboxForAccount (%s): %v", acc.label, r)
+		}
+	}()
 
 	dialer := &net.Dialer{Timeout: 5 * time.Second}
-	conn, err := tls.DialWithDialer(dialer, "tcp", "imap.gmail.com:993", &tls.Config{})
+	conn, err := tls.DialWithDialer(dialer, "tcp", acc.host, &tls.Config{})
 	if err != nil {
-		log.Println("IMAP dial timeout/error:", err)
+		log.Printf("[%s] IMAP dial error: %v", acc.label, err)
 		return
 	}
 
 	c, err := client.New(conn)
 	if err != nil {
-		log.Println("IMAP client creation failed:", err)
+		log.Printf("[%s] IMAP client creation failed: %v", acc.label, err)
 		return
 	}
 	defer c.Logout()
 
-	err = c.Login(email, password)
+	err = c.Login(acc.user, acc.pass)
 	if err != nil {
-		log.Println("Login failed:", err)
+		log.Printf("[%s] Login failed: %v", acc.label, err)
 		return
 	}
 
 	mbox, err := c.Select("INBOX", false)
 	if err != nil {
-		log.Println("Unable to select inbox:", err)
+		log.Printf("[%s] Unable to select inbox: %v", acc.label, err)
 		return
 	}
 
@@ -63,25 +159,54 @@ func CheckInbox() {
 		return
 	}
 
+	// Show inbox size immediately so the UI has a number while searching
+	Progress.mu.Lock()
+	Progress.Account = acc.label
+	Progress.Total += int(mbox.Messages)
+	Progress.mu.Unlock()
+
 	seqSet := new(imap.SeqSet)
-	const fetchCount = 3000
-	from := uint32(1)
-	if mbox.Messages > fetchCount {
-		from = mbox.Messages - fetchCount + 1
+	var totalToFetch int
+	if !since.IsZero() {
+		criteria := imap.NewSearchCriteria()
+		criteria.Since = since
+		ids, err := c.Search(criteria)
+		if err != nil {
+			log.Printf("[%s] Search failed: %v", acc.label, err)
+			return
+		}
+		if len(ids) == 0 {
+			log.Printf("[%s] No emails found since %s", acc.label, since.Format("2006-01-02"))
+			return
+		}
+		log.Printf("[%s] Found %d emails since %s", acc.label, len(ids), since.Format("2006-01-02"))
+		seqSet.AddNum(ids...)
+		totalToFetch = len(ids)
+		// Update total to the actual filtered count
+		Progress.mu.Lock()
+		Progress.Total = Progress.Total - int(mbox.Messages) + totalToFetch
+		Progress.mu.Unlock()
+	} else {
+		const fetchCount = 1000
+		from := uint32(1)
+		if mbox.Messages > fetchCount {
+			from = mbox.Messages - fetchCount + 1
+		}
+		seqSet.AddRange(from, mbox.Messages)
+		totalToFetch = int(mbox.Messages-from) + 1
+		// Update total to actual fetch count
+		Progress.mu.Lock()
+		Progress.Total = Progress.Total - int(mbox.Messages) + totalToFetch
+		Progress.mu.Unlock()
 	}
-	seqSet.AddRange(from, mbox.Messages)
 
 	section := &imap.BodySectionName{}
-	messages := make(chan *imap.Message, fetchCount)
-	var emailCount = 0
+	messages := make(chan *imap.Message, mbox.Messages+1)
 
-	ClearJobs()
-
-	// Simple goroutine without trying to close the channel ourselves
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("Panic recovered in fetch goroutine: %v", r)
+				log.Printf("[%s] Panic recovered in fetch goroutine: %v", acc.label, r)
 			}
 		}()
 
@@ -89,26 +214,26 @@ func CheckInbox() {
 			section.FetchItem(),
 			imap.FetchEnvelope,
 		}, messages); err != nil {
-			log.Println("Fetch failed:", err)
+			log.Printf("[%s] Fetch failed: %v", acc.label, err)
 		}
-		// Let the IMAP library handle closing the channel
 	}()
 
+	emailCount := 0
 	for msg := range messages {
-		// Add panic recovery for each message processing
+		waitIfPaused()
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("Panic recovered while processing message: %v", r)
+					log.Printf("[%s] Panic processing message: %v", acc.label, r)
 				}
 			}()
 
-			emailCount += 1
-			if msg == nil {
-				return
-			}
+			emailCount++
+			Progress.mu.Lock()
+			Progress.Processed++
+			Progress.mu.Unlock()
 
-			if msg.Envelope == nil {
+			if msg == nil || msg.Envelope == nil {
 				return
 			}
 
@@ -119,71 +244,91 @@ func CheckInbox() {
 
 			mr, err := imapmail.CreateReader(r)
 			if err != nil {
-				log.Println("Could not parse message:", err)
+				log.Printf("[%s] Could not parse message: %v", acc.label, err)
 				return
 			}
 
 			header := mr.Header
 			subject, _ := header.Subject()
-			from, _ := header.AddressList("From")
+			fromList, _ := header.AddressList("From")
 			fromAddress := "unknown"
-
-			// More defensive address extraction
-			if len(from) > 0 && from[0] != nil && from[0].Address != "" {
-				fromAddress = from[0].Address
+			if len(fromList) > 0 && fromList[0] != nil && fromList[0].Address != "" {
+				fromAddress = fromList[0].Address
 			}
 
-			if isJobRelated(subject) && isCareerDomain(fromAddress) {
-				// Safe date handling
+			LogReading(subject, fromAddress)
+
+			if isCareerDomain(fromAddress) {
+				messageID := msg.Envelope.MessageId
+
+				if JobExists(messageID) {
+					return
+				}
+
 				dateStr := "unknown"
 				if !msg.Envelope.Date.IsZero() {
 					dateStr = msg.Envelope.Date.Format("2006-01-02")
 				}
 
-				// Safe MessageId handling
-				messageID := ""
-				if msg.Envelope.MessageId != "" {
-					messageID = msg.Envelope.MessageId
-				}
-
 				body := ExtractPlainTextBody(mr)
-				company, title, err := ExtractJobDetails(subject, body)
+				time.Sleep(500 * time.Millisecond) // stay under TPM limit
+				company, title, status, relevant, err := ExtractJobDetails(subject, body)
 				if err != nil {
-					log.Println("Failed to extract job details via LLM:", err)
-					company = "Unknown"
-					title = subject
+					log.Printf("[%s] GPT error: %v", acc.label, err)
+					LogError("GPT error: " + err.Error())
+					return
 				}
-
-				status := determineStatus(subject, body)
-
-				job := Job{
-					Company: company,
-					Title:   title,
-					Status:  status,
-					EmailID: messageID,
-					Date:    dateStr,
+				if !relevant {
+					LogSkipped(subject)
+					return
 				}
+				LogFlagged(company, title, status)
 
-				// Wrap SaveJob in its own recovery in case it panics
 				func() {
 					defer func() {
 						if r := recover(); r != nil {
-							log.Printf("Panic in SaveJob: %v", r)
+							log.Printf("[%s] Panic in SaveJob: %v", acc.label, r)
 						}
 					}()
-					SaveJob(job)
+					if existing := FindJobByCompanyTitle(company, title); existing != nil {
+						UpdateJobStatusAndEmail(existing.ID, status, messageID, subject, body)
+						LogFlagged(company, title, status+" (updated)")
+					} else {
+						SaveJob(Job{
+							Company: company,
+							Title:   title,
+							Status:  status,
+							EmailID: messageID,
+							Date:    dateStr,
+							Subject: subject,
+							Body:    body,
+						})
+					}
+					Progress.mu.Lock()
+					Progress.Saved++
+					Progress.mu.Unlock()
 				}()
 			}
 		}()
 	}
+
+	log.Printf("[%s] Processed %d emails", acc.label, emailCount)
 }
 
 func isCareerDomain(address string) bool {
 	address = strings.ToLower(address)
 
-	if strings.Contains(address, "@linkedin.com") {
-		return false
+	excluded := []string{
+		"@linkedin.com",
+		"@quora.com",
+		"@indeed.com",
 	}
+	for _, ex := range excluded {
+		if strings.Contains(address, ex) {
+			return false
+		}
+	}
+
 
 	domains := []string{
 		"indeed.com",
@@ -203,6 +348,10 @@ func isCareerDomain(address string) bool {
 		"workday",
 		"icims",
 		"talent",
+		// Company-specific
+		"tesla.com",
+		// Personal forwarding
+		"othigurman@gmail.com",
 	}
 
 	for _, domain := range domains {
@@ -214,14 +363,6 @@ func isCareerDomain(address string) bool {
 	return false
 }
 
-func isJobRelated(subject string) bool {
-	subject = strings.ToLower(subject)
-	return strings.Contains(subject, "applied") ||
-		strings.Contains(subject, "thank you") ||
-		strings.Contains(subject, "application received") ||
-		strings.Contains(subject, "we regret") ||
-		strings.Contains(subject, "journey")
-}
 
 func ExtractPlainTextBody(mr *imapmail.Reader) string {
 	for {
@@ -250,15 +391,3 @@ func ExtractPlainTextBody(mr *imapmail.Reader) string {
 	return ""
 }
 
-func determineStatus(subject, body string) string {
-	text := strings.ToLower(subject + " " + body)
-	switch {
-	case strings.Contains(text, "interview"):
-		return "Interview"
-	case strings.Contains(text, "offer"):
-		return "Offer"
-	case strings.Contains(text, "rejected"), strings.Contains(text, "regret"):
-		return "Rejected"
-	}
-	return "Applied"
-}

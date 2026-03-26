@@ -1,41 +1,288 @@
+/* ── Background (unchanged) ── */
+.bg-tropical {
+  background: linear-gradient(135deg, #fdf2f8 0%, #fce7f3 40%, #f0fdf4 100%);
+  min-height: 100vh;
+  position: relative;
+  overflow: hidden;
+}
+
 .wave {
   position: absolute;
-  width: 200%;
-  height: 200%;
-  background: linear-gradient(45deg, #f472b6, #ec4899, #db2777);
-  opacity: 0.3;
+  border-radius: 40%;
   animation: wave 45s infinite linear;
   transform-origin: center center;
 }
 
 .wave1 {
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  width: 70vw;
+  height: 70vw;
+  top: -20vw;
+  left: -20vw;
+  background: radial-gradient(ellipse, #f9a8d4 0%, #ec4899 60%, transparent 100%);
+  opacity: 0.35;
+  animation-duration: 40s;
   animation-delay: 0s;
 }
 
 .wave2 {
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  animation-delay: -1.67s;
-  background: linear-gradient(45deg, #f472b6, #ec4899, #db2777);
+  width: 60vw;
+  height: 60vw;
+  bottom: -15vw;
+  right: -15vw;
+  top: auto;
+  left: auto;
+  background: radial-gradient(ellipse, #bbf7d0 0%, #34d399 60%, transparent 100%);
+  opacity: 0.35;
+  animation-duration: 50s;
+  animation-delay: -20s;
+  transform-origin: center center;
 }
 
 .wave3 {
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  animation-delay: -3.33s;
-  background: linear-gradient(45deg, #34d399, #10b981, #059669);
+  width: 40vw;
+  height: 40vw;
+  top: 30%;
+  right: -10vw;
+  left: auto;
+  background: radial-gradient(ellipse, #fda4af 0%, #fb7185 60%, transparent 100%);
+  opacity: 0.25;
+  animation-duration: 35s;
+  animation-delay: -10s;
 }
 
 @keyframes wave {
-  0% {
-    transform: translate(-50%, -50%) rotate(0deg);
-  }
-  100% {
-    transform: translate(-50%, -50%) rotate(360deg);
-  }
-} 
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* ── Frutiger Aero Glass cards ── */
+.glass-card {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.92) 0%,
+      rgba(220, 245, 255, 0.75) 48%,
+      rgba(185, 230, 250, 0.65) 100%
+    );
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  border-bottom-color: rgba(160, 210, 240, 0.6);
+  border-right-color: rgba(160, 210, 240, 0.5);
+  box-shadow:
+    0 2px 0 rgba(255, 255, 255, 0.9) inset,
+    0 6px 24px rgba(0, 160, 220, 0.12),
+    0 1px 3px rgba(0, 120, 180, 0.08);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.glass-card:hover {
+  box-shadow:
+    0 2px 0 rgba(255, 255, 255, 0.95) inset,
+    0 10px 36px rgba(0, 160, 220, 0.2),
+    0 2px 6px rgba(0, 120, 180, 0.12);
+  transform: translateY(-1px);
+}
+
+/* ── Status badges — glossy pill style ── */
+.status-applied {
+  background: linear-gradient(180deg, rgba(147, 197, 253, 0.5) 0%, rgba(59, 130, 246, 0.25) 100%);
+  color: #1d4ed8;
+  border: 1px solid rgba(147, 197, 253, 0.7);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.8) inset, 0 1px 3px rgba(59,130,246,0.15);
+  text-shadow: 0 1px 0 rgba(255,255,255,0.6);
+}
+.status-interview {
+  background: linear-gradient(180deg, rgba(253, 230, 138, 0.6) 0%, rgba(245, 158, 11, 0.25) 100%);
+  color: #92400e;
+  border: 1px solid rgba(252, 211, 77, 0.8);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.9) inset, 0 1px 3px rgba(245,158,11,0.2);
+  text-shadow: 0 1px 0 rgba(255,255,255,0.7);
+}
+.status-offer {
+  background: linear-gradient(180deg, rgba(110, 231, 183, 0.6) 0%, rgba(16, 185, 129, 0.3) 100%);
+  color: #064e3b;
+  border: 1px solid rgba(52, 211, 153, 0.8);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.9) inset, 0 1px 3px rgba(16,185,129,0.2);
+  text-shadow: 0 1px 0 rgba(255,255,255,0.7);
+}
+.status-rejected {
+  background: linear-gradient(180deg, rgba(252, 165, 165, 0.5) 0%, rgba(239, 68, 68, 0.2) 100%);
+  color: #991b1b;
+  border: 1px solid rgba(252, 165, 165, 0.7);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.8) inset, 0 1px 3px rgba(239,68,68,0.15);
+  text-shadow: 0 1px 0 rgba(255,255,255,0.6);
+}
+
+/* ── Kanban column accents ── */
+.col-applied   { border-top: 3px solid rgba(99, 165, 253, 0.8); }
+.col-interview { border-top: 3px solid rgba(245, 158, 11, 0.8); }
+.col-offer     { border-top: 3px solid rgba(16, 185, 129, 0.9); }
+.col-rejected  { border-top: 3px solid rgba(248, 113, 113, 0.8); }
+
+/* ── Table rows ── */
+.table-row {
+  border-bottom: 1px solid rgba(186, 230, 253, 0.4);
+  transition: background 0.15s ease;
+}
+.table-row:hover {
+  background: linear-gradient(90deg, rgba(224, 242, 254, 0.5) 0%, rgba(240, 249, 255, 0.3) 100%);
+}
+
+/* ── Frutiger Aero glossy button ── */
+.btn-toggle {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.98) 0%,
+      rgba(224, 242, 254, 0.9) 45%,
+      rgba(186, 230, 253, 0.85) 100%
+    );
+  border: 1px solid rgba(125, 211, 252, 0.6);
+  border-bottom-color: rgba(56, 189, 248, 0.5);
+  color: #0369a1;
+  font-weight: 600;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.95) inset,
+    0 3px 8px rgba(14, 165, 233, 0.15),
+    0 1px 2px rgba(0, 0, 0, 0.05);
+  transition: all 0.15s ease;
+  backdrop-filter: blur(8px);
+}
+.btn-toggle:hover {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 1) 0%,
+      rgba(240, 249, 255, 0.95) 45%,
+      rgba(224, 242, 254, 0.9) 100%
+    );
+  border-color: rgba(56, 189, 248, 0.8);
+  color: #0c4a6e;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 1) inset,
+    0 5px 16px rgba(14, 165, 233, 0.25),
+    0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.btn-toggle:active {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(186, 230, 253, 0.9) 0%,
+      rgba(224, 242, 254, 0.95) 100%
+    );
+  box-shadow: 0 1px 2px rgba(14, 165, 233, 0.2) inset;
+  transform: translateY(1px);
+}
+
+/* ── Dragging ── */
+.dragging {
+  box-shadow:
+    0 2px 0 rgba(255, 255, 255, 0.95) inset,
+    0 24px 48px rgba(0, 160, 220, 0.3),
+    0 4px 12px rgba(0, 0, 0, 0.1) !important;
+  transform: rotate(1.5deg) scale(1.03) !important;
+}
+
+/* ── View transition ── */
+@keyframes viewEnter {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.view-enter {
+  animation: viewEnter 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── Loading screen ── */
+.loading-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+.toucan-fly-outer {
+  position: fixed;
+  top: 38vh;
+  left: 0;
+  z-index: 50;
+  pointer-events: none;
+  animation: flyX 2.4s linear infinite;
+}
+
+.toucan-fly-inner {
+  animation: flyY 0.75s ease-in-out infinite alternate;
+}
+
+.toucan-fly-img {
+  width: 92px;
+  height: 92px;
+  display: block;
+  filter: drop-shadow(0 8px 20px rgba(0, 100, 180, 0.25));
+}
+
+@keyframes flyX {
+  0%   { transform: translateX(-110px); }
+  100% { transform: translateX(calc(100vw + 110px)); }
+}
+
+@keyframes flyY {
+  0%   { transform: translateY(0px)   rotate(-10deg); }
+  100% { transform: translateY(-38px) rotate(-18deg); }
+}
+
+.loading-title {
+  font-size: 2.8rem;
+  font-weight: 700;
+  color: #1e3a5f;
+  letter-spacing: -0.03em;
+  text-shadow: 0 2px 8px rgba(255,255,255,0.8);
+  animation: fadeInUp 0.6s ease both;
+}
+
+.loading-sub {
+  font-size: 0.875rem;
+  color: #64748b;
+  letter-spacing: 0.02em;
+  animation: fadeInUp 0.6s 0.15s ease both;
+}
+
+.loading-dots {
+  display: flex;
+  gap: 6px;
+  animation: fadeInUp 0.6s 0.3s ease both;
+}
+
+.loading-dots span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #38bdf8, #0ea5e9);
+  box-shadow: 0 0 6px rgba(14,165,233,0.5);
+  animation: dotBounce 1.1s ease-in-out infinite;
+}
+
+.loading-dots span:nth-child(2) { animation-delay: 0.18s; }
+.loading-dots span:nth-child(3) { animation-delay: 0.36s; }
+
+@keyframes dotBounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.5; }
+  40%           { transform: translateY(-8px); opacity: 1; }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Modal animations ── */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}

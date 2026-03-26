@@ -10,6 +10,7 @@ vendor/
 # Build outputs
 dist/
 build/
+jobtracker
 *.exe
 *.exe~
 *.dll
@@ -22,6 +23,7 @@ build/
 *.swp
 *.swo
 .DS_Store
+*.code-workspace
 
 # Logs
 *.log

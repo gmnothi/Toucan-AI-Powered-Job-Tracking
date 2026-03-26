@@ -1,19 +1,78 @@
-import React, { useState, useEffect } from 'react';
-import { getJobs, deleteJob } from './api';
+import React, { useState, useEffect, useMemo } from 'react';
+import { getJobs, deleteJob, updateJobStatus, triggerRefresh, getStatus, togglePause } from './api';
 import './App.css';
-import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
+import EmailModal from './components/EmailModal';
+import Terminal from './components/Terminal';
+import ToucanPeek from './components/ToucanPeek';
+import LoadingScreen from './components/LoadingScreen';
 
-function App() {
+const STATUS_CONFIG = {
+  applied:   { label: 'Applied',      className: 'status-applied',   col: 'col-applied' },
+  interview: { label: 'Interviewing', className: 'status-interview', col: 'col-interview' },
+  offer:     { label: 'Offer',        className: 'status-offer',     col: 'col-offer' },
+  rejected:  { label: 'Rejected',     className: 'status-rejected',  col: 'col-rejected' },
+};
+
+const getStatusKey = (status) => {
+  const s = (status || '').toLowerCase();
+  if (s.startsWith('interview')) return 'interview';
+  if (s.startsWith('offer')) return 'offer';
+  if (s.startsWith('reject')) return 'rejected';
+  return 'applied';
+};
+
+const StatusBadge = ({ status }) => {
+  const key = getStatusKey(status);
+  const cfg = STATUS_CONFIG[key];
+  return (
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${cfg.className}`}>
+      {cfg.label}
+    </span>
+  );
+};
+
+const CompanyLogo = ({ company }) => {
+  const formatted = (company || '').toLowerCase().replace(/[^a-z0-9]/g, '').replace(/(inc|llc|corp|corporation|limited|ltd)$/g, '');
+  if (!formatted) return null;
+  const url = `https://img.logo.dev/${formatted}.com?token=${import.meta.env.VITE_LOGO_DEV_KEY}`;
+  return (
+    <img
+      src={url}
+      alt=""
+      className="w-6 h-6 rounded object-contain flex-shrink-0"
+      onError={e => { e.target.style.display = 'none'; }}
+    />
+  );
+};
+
+const StatCard = ({ label, count, colorClass }) => (
+  <div className="glass-card rounded-xl px-4 py-2.5 flex items-center gap-2.5">
+    <span className={`text-xl font-bold ${colorClass}`}>{count}</span>
+    <span className="text-sm text-gray-500">{label}</span>
+  </div>
+);
+
+export default function App() {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isKanbanView, setIsKanbanView] = useState(false);
-  const [dateSort, setDateSort] = useState('newest'); // 'newest' or 'oldest'
+  const [dateSort, setDateSort] = useState('newest');
+  const [selectedJob, setSelectedJob] = useState(null);
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [scanProgress, setScanProgress] = useState(null);
+  const [statusFilter, setStatusFilter] = useState('all');
 
   const fetchJobs = async () => {
     try {
-      const data = await getJobs();
-      setJobs(data);
+      const [data] = await Promise.all([
+        getJobs(),
+        new Promise(res => setTimeout(res, 2000)),
+      ]);
+      setJobs(data || []);
       setLoading(false);
     } catch (err) {
       setError('Failed to fetch jobs');
@@ -21,251 +80,380 @@ function App() {
     }
   };
 
-  useEffect(() => {
-    fetchJobs();
-  }, []);
+  useEffect(() => { fetchJobs(); }, []);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    setScanProgress(null);
+    try {
+      await triggerRefresh();
+      const poll = setInterval(async () => {
+        try {
+          const status = await getStatus();
+          setScanProgress(status);
+          setPaused(status.paused);
+          if (!status.running) {
+            clearInterval(poll);
+            const data = await getJobs();
+            setJobs(data || []);
+            setRefreshing(false);
+          }
+        } catch {
+          clearInterval(poll);
+          setRefreshing(false);
+        }
+      }, 1000);
+    } catch {
+      setRefreshing(false);
+    }
+  };
 
   const handleDelete = async (jobId) => {
-    if (window.confirm('Are you sure you want to delete this job?')) {
-      try {
-        await deleteJob(parseInt(jobId));
-        // Refresh the jobs list after deletion
-        await fetchJobs();
-      } catch (err) {
-        setError('Failed to delete job');
-        console.error('Delete error:', err);
-      }
+    if (!window.confirm('Delete this job?')) return;
+    try {
+      await deleteJob(parseInt(jobId));
+      await fetchJobs();
+    } catch {
+      setError('Failed to delete job');
     }
   };
 
-  const getJobsByStatus = (status) => {
-    if (!jobs) return [];
-    return jobs.filter(job => job.Status.toLowerCase() === status.toLowerCase());
-  };
+  const sortJobs = (list) => [...list].sort((a, b) => {
+    if (!a.Date) return 1;
+    if (!b.Date) return -1;
+    const diff = new Date(b.Date) - new Date(a.Date);
+    return dateSort === 'newest' ? diff : -diff;
+  });
 
-  const formatCompanyForLogo = (company) => {
-    if (!company) return '';
-    // Remove common suffixes and special characters
-    return company
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, '') // Remove special characters
-      .replace(/(inc|llc|corp|corporation|limited|ltd)$/g, '') // Remove common suffixes
-      .trim();
-  };
-
-  const getLogoUrl = (company) => {
-    const formattedCompany = formatCompanyForLogo(company);
-    if (!formattedCompany) return null;
-    return `https://img.logo.dev/${formattedCompany}.com?token=${import.meta.env.VITE_LOGO_DEV_KEY}`;
-  };
-
-  // Sort jobs by date
-  const sortJobs = (jobsList) => {
-    return [...jobsList].sort((a, b) => {
-      if (!a.Date) return 1;
-      if (!b.Date) return -1;
-      const dateA = new Date(a.Date);
-      const dateB = new Date(b.Date);
-      if (dateSort === 'newest') {
-        return dateB - dateA;
-      } else {
-        return dateA - dateB;
-      }
-    });
-  };
-
-  // Drag-and-drop handlers for Kanban
-  const statusColumns = [
-    { key: 'applied', label: 'Applied' },
-    { key: 'interview', label: 'Interviewing' },
-    { key: 'offer', label: 'Offer' },
-  ];
-
-  const getStatusKey = (status) => {
-    const s = status.toLowerCase();
-    if (s.startsWith('interview')) return 'interview';
-    if (s.startsWith('offer')) return 'offer';
-    return 'applied';
-  };
-
-  const jobsByStatus = statusColumns.reduce((acc, col) => {
-    acc[col.key] = sortJobs(jobs.filter(job => getStatusKey(job.Status) === col.key));
-    return acc;
-  }, {});
-
-  const onDragEnd = (result) => {
+  const onDragEnd = async (result) => {
     const { source, destination, draggableId } = result;
     if (!destination) return;
-    if (
-      source.droppableId === destination.droppableId &&
-      source.index === destination.index
-    ) {
-      return;
-    }
+    if (source.droppableId === destination.droppableId && source.index === destination.index) return;
+
     const jobId = parseInt(draggableId);
-    const destStatus = destination.droppableId;
-    setJobs(prevJobs =>
-      prevJobs.map(job =>
-        job.ID === jobId ? { ...job, Status: destStatus.charAt(0).toUpperCase() + destStatus.slice(1) } : job
-      )
-    );
-    // TODO: Call backend to persist status change
+    const destKey = destination.droppableId;
+    const newStatus = STATUS_CONFIG[destKey].label;
+
+    setJobs(prev => prev.map(job => job.ID === jobId ? { ...job, Status: newStatus } : job));
+    try {
+      await updateJobStatus(jobId, newStatus);
+    } catch {
+      await fetchJobs();
+    }
   };
 
-  if (loading) return <div className="p-4">Loading...</div>;
-  if (error) return <div className="p-4 text-red-500">{error}</div>;
-  if (!jobs) return <div className="p-4 text-red-500">No jobs data available</div>;
+  const counts = {
+    applied:   jobs.filter(j => getStatusKey(j.Status) === 'applied').length,
+    interview: jobs.filter(j => getStatusKey(j.Status) === 'interview').length,
+    offer:     jobs.filter(j => getStatusKey(j.Status) === 'offer').length,
+    rejected:  jobs.filter(j => getStatusKey(j.Status) === 'rejected').length,
+  };
+
+  const kanbanColumns = ['applied', 'interview', 'offer', 'rejected'];
+  const jobsByStatus = useMemo(() => kanbanColumns.reduce((acc, key) => {
+    acc[key] = sortJobs(jobs.filter(j => getStatusKey(j.Status) === key));
+    return acc;
+  }, {}), [jobs, dateSort]);
+
+  if (loading) return <LoadingScreen />;
+
+  if (error) return (
+    <div className="bg-tropical flex items-center justify-center">
+      <div className="absolute inset-0"><div className="wave wave1"/><div className="wave wave2"/><div className="wave wave3"/></div>
+      <div className="relative glass-card rounded-xl p-6 text-red-500">{error}</div>
+    </div>
+  );
 
   return (
-    <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-purple-50 to-pink-50">
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="wave wave1"></div>
-        <div className="wave wave2"></div>
-        <div className="wave wave3"></div>
+    <div className="bg-tropical">
+      <ToucanPeek />
+      <EmailModal job={selectedJob} onClose={() => setSelectedJob(null)} />
+      <Terminal open={terminalOpen} onClose={() => setTerminalOpen(false)} />
+
+      {/* Animated background */}
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="wave wave1"/>
+        <div className="wave wave2"/>
+        <div className="wave wave3"/>
       </div>
-      <div className="container mx-auto p-4 relative z-10">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-5xl font-bold">
-            <img src="/logos/toucanlogo.png" className="w-20 h-20 inline-block -mr-4" alt="Toucan Logo"></img>
-            Toucan
-          </h1>
-          <button
-            onClick={() => setIsKanbanView(!isKanbanView)}
-            className="px-4 py-2 bg-white/80 backdrop-blur-sm rounded-lg shadow-lg hover:bg-white/90 transition-colors animate-pulse hover:animate-none"
-          >
-            {isKanbanView ? 'Table View' : 'Kanban View'}
-          </button>
+
+      <div className="relative z-10 max-w-7xl mx-auto px-6 py-8">
+
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center gap-1">
+            <img src={`${import.meta.env.BASE_URL}logos/toucanlogo.png`} className="w-24 h-24 drop-shadow-md" alt="Toucan" />
+            <h1 className="text-4xl font-bold text-gray-800 tracking-tight" style={{ fontFamily: 'Inter, sans-serif', letterSpacing: '-0.02em' }}>
+              Toucan
+            </h1>
+          </div>
+
+          <div className="flex items-center gap-3 flex-wrap justify-end">
+            <StatCard label="Total"        count={jobs.length}      colorClass="text-gray-500" />
+            <StatCard label="Applied"      count={counts.applied}   colorClass="text-indigo-500" />
+            <StatCard label="Interviewing" count={counts.interview} colorClass="text-amber-500" />
+            <StatCard label="Offers"       count={counts.offer}     colorClass="text-emerald-500" />
+            <StatCard label="Rejected"     count={counts.rejected}  colorClass="text-red-400" />
+
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="btn-toggle px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50"
+            >
+              <RefreshIcon spinning={refreshing && !paused} />
+              {refreshing ? (paused ? 'Paused' : 'Scanning...') : 'Refresh'}
+            </button>
+
+            {refreshing && (
+              <button
+                onClick={async () => { const r = await togglePause(); setPaused(r.paused); }}
+                className="btn-toggle px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2"
+              >
+                {paused ? <PlayIcon /> : <PauseIcon />}
+                {paused ? 'Resume' : 'Pause'}
+              </button>
+            )}
+
+            <button
+              onClick={() => setIsKanbanView(!isKanbanView)}
+              className="btn-toggle px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 justify-center"
+              style={{ minWidth: '100px' }}
+            >
+              {isKanbanView ? <><TableIcon /> Table</> : <><KanbanIcon /> Kanban</>}
+            </button>
+
+            <button
+              onClick={() => setTerminalOpen(!terminalOpen)}
+              className="btn-toggle px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2"
+            >
+              <TerminalIcon /> Logs
+            </button>
+          </div>
         </div>
 
+        {/* Progress bar */}
+        {refreshing && scanProgress && (
+          <div className="glass-card rounded-2xl p-4 mb-6">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-pink-400 animate-pulse" />
+                <span className="text-sm font-medium text-gray-700">
+                  Scanning {scanProgress.account} inbox
+                </span>
+              </div>
+              <span className="text-sm text-gray-500">
+                {scanProgress.processed} / {scanProgress.total} emails &nbsp;·&nbsp;
+                <span className="text-emerald-600 font-semibold">{scanProgress.saved} jobs found</span>
+              </span>
+            </div>
+            <div className="w-full bg-pink-100 rounded-full h-2.5 overflow-hidden">
+              <div
+                className="h-2.5 rounded-full bg-gradient-to-r from-pink-400 to-emerald-400 transition-all duration-300"
+                style={{ width: scanProgress.total > 0 ? `${Math.min(100, (scanProgress.processed / scanProgress.total) * 100)}%` : '0%' }}
+              />
+            </div>
+            <p className="text-xs text-gray-400 mt-1.5">
+              {scanProgress.total > 0
+                ? `${Math.round((scanProgress.processed / scanProgress.total) * 100)}% complete`
+                : 'Connecting...'}
+            </p>
+          </div>
+        )}
+
+        {/* View (keyed so switching triggers the enter animation) */}
+        <div key={isKanbanView ? 'kanban' : 'table'} className="view-enter">
+
+        {/* Kanban */}
         {isKanbanView ? (
           <DragDropContext onDragEnd={onDragEnd}>
-            <div className="grid grid-cols-3 gap-4">
-              {statusColumns.map(col => (
-                <Droppable droppableId={col.key} key={col.key}>
-                  {(provided, snapshot) => (
-                    <div
-                      ref={provided.innerRef}
-                      {...provided.droppableProps}
-                      className={`bg-white/80 backdrop-blur-sm rounded-lg shadow-lg p-4 hover:shadow-xl transition-shadow duration-300 min-h-[300px] ${snapshot.isDraggingOver ? 'ring-2 ring-purple-300' : ''}`}
-                    >
-                      <h2 className="text-lg font-semibold mb-4 text-gray-700">{col.label}</h2>
-                      <div className="space-y-3">
-                        {jobsByStatus[col.key].map((job, idx) => (
-                          <Draggable draggableId={job.ID.toString()} index={idx} key={job.ID}>
-                            {(provided, snapshot) => (
-                              <div
-                                ref={provided.innerRef}
-                                {...provided.draggableProps}
-                                {...provided.dragHandleProps}
-                                className={`bg-white/90 p-3 rounded-lg shadow hover:shadow-md transition-all duration-300 hover:scale-[1.02] ${snapshot.isDragging ? 'ring-2 ring-purple-400' : ''}`}
-                              >
-                                <div className="flex justify-between items-start">
-                                  <div>
-                                    <h3 className="font-medium">{job.Title}</h3>
-                                    <div className="flex items-center gap-2">
-                                      {getLogoUrl(job.Company) && (
-                                        <img 
-                                          src={getLogoUrl(job.Company)}
-                                          alt={`${job.Company} logo`}
-                                          className="w-6 h-6 object-contain"
-                                          onError={(e) => {
-                                            e.target.style.display = 'none';
-                                          }}
-                                        />
-                                      )}
-                                      <p className="text-sm text-gray-600">{job.Company}</p>
+            <div className="grid grid-cols-4 gap-4">
+              {kanbanColumns.map(key => {
+                const cfg = STATUS_CONFIG[key];
+                return (
+                  <Droppable droppableId={key} key={key}>
+                    {(provided, snapshot) => (
+                      <div
+                        ref={provided.innerRef}
+                        {...provided.droppableProps}
+                        className={`glass-card rounded-2xl p-4 min-h-[400px] ${cfg.col} transition-all duration-200 ${snapshot.isDraggingOver ? 'ring-2 ring-pink-300' : ''}`}
+                      >
+                        <div className="flex items-center justify-between mb-4">
+                          <h2 className="text-sm font-semibold text-gray-700">{cfg.label}</h2>
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${cfg.className}`}>
+                            {jobsByStatus[key].length}
+                          </span>
+                        </div>
+                        <div className="space-y-2">
+                          {jobsByStatus[key].map((job, idx) => (
+                            <Draggable draggableId={job.ID.toString()} index={idx} key={job.ID}>
+                              {(provided, snapshot) => (
+                                <div
+                                  ref={provided.innerRef}
+                                  {...provided.draggableProps}
+                                  {...provided.dragHandleProps}
+                                  className={`glass-card rounded-xl p-3 cursor-grab active:cursor-grabbing ${snapshot.isDragging ? 'dragging' : ''}`}
+                                >
+                                  <div className="flex items-start justify-between gap-2" onClick={() => !snapshot.isDragging && setSelectedJob(job)}>
+                                    <div className="min-w-0 flex-1 cursor-pointer">
+                                      <p className="text-sm font-semibold text-gray-800 truncate">{job.Title}</p>
+                                      <div className="flex items-center gap-1.5 mt-1">
+                                        <CompanyLogo company={job.Company} />
+                                        <p className="text-xs text-gray-500 truncate">{job.Company}</p>
+                                      </div>
+                                      {job.Date && <p className="text-xs text-gray-400 mt-1.5">{job.Date}</p>}
                                     </div>
-                                    <p className="text-xs text-gray-500 mt-1">{job.Date}</p>
+                                    <button
+                                      onClick={() => handleDelete(job.ID)}
+                                      className="text-red-400 hover:text-red-600 transition-colors flex-shrink-0 p-0.5"
+                                    >
+                                      <TrashIcon />
+                                    </button>
                                   </div>
-                                  <button
-                                    onClick={() => handleDelete(job.ID)}
-                                    className="text-red-500 hover:text-red-700 transition-all duration-300 p-1 hover:scale-110 active:scale-95"
-                                    title="Delete job"
-                                  >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                      <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                                    </svg>
-                                  </button>
                                 </div>
-                              </div>
-                            )}
-                          </Draggable>
-                        ))}
-                        {provided.placeholder}
+                              )}
+                            </Draggable>
+                          ))}
+                          {provided.placeholder}
+                          {jobsByStatus[key].length === 0 && !snapshot.isDraggingOver && (
+                            <p className="text-xs text-gray-300 text-center py-8">Drop here</p>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </Droppable>
-              ))}
+                    )}
+                  </Droppable>
+                );
+              })}
             </div>
           </DragDropContext>
         ) : (
-          <div className="overflow-x-auto bg-white/80 backdrop-blur-sm rounded-lg shadow-lg hover:shadow-xl transition-shadow duration-300">
-            <table className="min-w-full bg-white/90 border border-gray-300">
+          /* Table */
+          <div className="glass-card rounded-2xl overflow-hidden">
+            <table className="w-full">
               <thead>
-                <tr className="bg-gray-100/80">
-                  <th className="px-4 py-2 border">Company</th>
-                  <th className="px-4 py-2 border">Title</th>
-                  <th className="px-4 py-2 border">Status</th>
-                  <th className="px-4 py-2 border">
+                <tr className="border-b border-pink-100">
+                  <th className="text-left px-5 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">Company</th>
+                  <th className="text-left px-5 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">Role</th>
+                  <th className="text-left px-5 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    <div className="flex items-center gap-2">
+                      <span>Status</span>
+                      <select
+                        value={statusFilter}
+                        onChange={e => setStatusFilter(e.target.value)}
+                        onClick={e => e.stopPropagation()}
+                        className="bg-white/60 border border-sky-200 rounded-lg px-2 py-0.5 text-xs text-gray-500 focus:outline-none focus:ring-2 focus:ring-sky-300 normal-case tracking-normal font-normal"
+                      >
+                        <option value="all">All</option>
+                        <option value="applied">Applied</option>
+                        <option value="interview">Interviewing</option>
+                        <option value="offer">Offer</option>
+                        <option value="rejected">Rejected</option>
+                      </select>
+                    </div>
+                  </th>
+                  <th className="text-left px-5 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
                     <div className="flex items-center gap-2">
                       Date
                       <select
                         value={dateSort}
                         onChange={e => setDateSort(e.target.value)}
-                        className="ml-2 px-2 py-1 rounded border border-gray-300 text-sm bg-white/80 focus:outline-none focus:ring-2 focus:ring-purple-300"
-                        style={{ minWidth: '110px' }}
-                        title="Sort by date"
+                        className="bg-white/60 border border-pink-200 rounded-lg px-2 py-0.5 text-xs text-gray-500 focus:outline-none focus:ring-2 focus:ring-pink-300 normal-case tracking-normal font-normal"
                       >
-                        <option value="newest">Newest first</option>
-                        <option value="oldest">Oldest first</option>
+                        <option value="newest">Newest</option>
+                        <option value="oldest">Oldest</option>
                       </select>
                     </div>
                   </th>
-                  <th className="px-4 py-2 border">Actions</th>
+                  <th className="px-5 py-4" />
                 </tr>
               </thead>
               <tbody>
-                {sortJobs(jobs).map((job) => (
-                  <tr key={job.ID} className="hover:bg-gray-50/80 transition-colors duration-300">
-                    <td className="px-4 py-2 border">
-                      <div className="flex items-center gap-2">
-                        {getLogoUrl(job.Company) && (
-                          <img 
-                            src={getLogoUrl(job.Company)}
-                            alt={`${job.Company} logo`}
-                            className="w-6 h-6 object-contain"
-                            onError={(e) => {
-                              e.target.style.display = 'none';
-                            }}
-                          />
-                        )}
-                        {job.Company}
+                {sortJobs(jobs.filter(j => statusFilter === 'all' || getStatusKey(j.Status) === statusFilter)).map(job => (
+                  <tr key={job.ID} className="table-row cursor-pointer" onClick={() => setSelectedJob(job)}>
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-2.5">
+                        <CompanyLogo company={job.Company} />
+                        <span className="text-sm font-semibold text-gray-700">{job.Company}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-2 border">{job.Title}</td>
-                    <td className="px-4 py-2 border">{job.Status}</td>
-                    <td className="px-4 py-2 border">{job.Date}</td>
-                    <td className="px-4 py-2 border">
+                    <td className="px-5 py-3.5 text-sm text-gray-600">{job.Title}</td>
+                    <td className="px-5 py-3.5"><StatusBadge status={job.Status} /></td>
+                    <td className="px-5 py-3.5 text-sm text-gray-400">{job.Date}</td>
+                    <td className="px-5 py-3.5 text-right">
                       <button
-                        onClick={() => handleDelete(job.ID)}
-                        className="text-red-500 hover:text-red-700 transition-all duration-300 p-1 hover:scale-110 active:scale-95"
-                        title="Delete job"
+                        onClick={(e) => { e.stopPropagation(); handleDelete(job.ID); }}
+                        className="text-red-400 hover:text-red-600 transition-colors p-1 rounded-lg"
                       >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                        </svg>
+                        <TrashIcon />
                       </button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {jobs.length === 0 && (
+              <div className="text-center py-16 text-gray-300">No jobs tracked yet</div>
+            )}
           </div>
         )}
+
+        </div>{/* end view-enter */}
       </div>
     </div>
   );
 }
 
-export default App;
+function PauseIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+    </svg>
+  );
+}
+
+function PlayIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+    </svg>
+  );
+}
+
+function TerminalIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm3.293 1.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L7.586 10 5.293 7.707a1 1 0 010-1.414zM11 12a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
+    </svg>
+  );
+}
+
+function RefreshIcon({ spinning }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 ${spinning ? 'animate-spin' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+    </svg>
+  );
+}
+
+function TableIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M5 4a3 3 0 00-3 3v6a3 3 0 003 3h10a3 3 0 003-3V7a3 3 0 00-3-3H5zm-1 9v-1h5v2H5a1 1 0 01-1-1zm7 1h4a1 1 0 001-1v-1h-5v2zm0-4h5V8h-5v2zM9 8H4v2h5V8z" clipRule="evenodd" />
+    </svg>
+  );
+}
+
+function KanbanIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+      <path d="M2 4a1 1 0 011-1h3a1 1 0 011 1v12a1 1 0 01-1 1H3a1 1 0 01-1-1V4zM8 4a1 1 0 011-1h3a1 1 0 011 1v7a1 1 0 01-1 1H9a1 1 0 01-1-1V4zM14 4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
+    </svg>
+  );
+}

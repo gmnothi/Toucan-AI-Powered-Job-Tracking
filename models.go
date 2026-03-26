@@ -7,4 +7,6 @@ type Job struct {
 	Status  string
 	EmailID string
 	Date    string
+	Subject string
+	Body    string
 }

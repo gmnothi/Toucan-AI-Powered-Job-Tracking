@@ -20,7 +20,8 @@ func init() {
 func main() {
 	TestOpenAI()
 	InitDB()
-	CheckInbox()
+
+	go CheckInbox()
 
 	c := cron.New()
 	c.AddFunc("@every 20m", CheckInbox)

@@ -397,6 +397,12 @@ export default function App() {
         )}
 
         </div>{/* end view-enter */}
+
+        {/* Attribution */}
+        <p className="text-center text-xs text-gray-400 mt-6">
+          <a href="https://logo.dev" target="_blank" rel="noopener">Logos provided by Logo.dev</a>
+        </p>
+
       </div>
     </div>
   );

@@ -7,6 +7,8 @@
 <img src="frontend/public/logos/KanbanPreview.png" alt="Toucan Logo" style="height: 100px; vertical-align: middle;">
 </div>
 
+<a href="https://www.linkedin.com/posts/gurmanothi_i-automated-job-tracking-with-toucan-activity-7338016454002270208-OMFv?utm_source=social_share_send&utm_medium=member_desktop_web&rcm=ACoAADu5yZYBjwpqFZPzHphQdaAdtUolfcM3D_0" target="_blank">Check out this demo video!</a>
+
 A modern job tracking app to help you organize your job search, built with React (frontend) and Go (backend).
 
 ---

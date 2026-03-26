@@ -35,7 +35,8 @@ const StatusBadge = ({ status }) => {
 const CompanyLogo = ({ company }) => {
   const formatted = (company || '').toLowerCase().replace(/[^a-z0-9]/g, '').replace(/(inc|llc|corp|corporation|limited|ltd)$/g, '');
   if (!formatted) return null;
-  const url = `https://img.logo.dev/${formatted}.com?token=${import.meta.env.VITE_LOGO_DEV_KEY}`;
+  const base = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
+  const url = `${base}/logo?domain=${formatted}.com`;
   return (
     <img
       src={url}

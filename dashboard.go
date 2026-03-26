@@ -3,6 +3,7 @@ package main
 import (
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -87,6 +88,23 @@ func StartWebServer() {
 
 		go CheckInboxSince(since)
 		c.JSON(http.StatusOK, gin.H{"message": "Refresh started"})
+	})
+
+	r.GET("/api/logo", func(c *gin.Context) {
+		domain := c.Query("domain")
+		if domain == "" {
+			c.Status(http.StatusBadRequest)
+			return
+		}
+		key := os.Getenv("LOGO_DEV")
+		url := "https://img.logo.dev/" + domain + "?token=" + key
+		resp, err := http.Get(url)
+		if err != nil || resp.StatusCode != http.StatusOK {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		defer resp.Body.Close()
+		c.DataFromReader(resp.StatusCode, resp.ContentLength, resp.Header.Get("Content-Type"), resp.Body, nil)
 	})
 
 	r.GET("/api/jobs", func(c *gin.Context) {

@@ -18,10 +18,23 @@ func StartWebServer() {
 	r.Use(cors.New(cors.Config{
 		AllowAllOrigins:  true,
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "X-API-Key"},
 	}))
 
 	r.LoadHTMLGlob("templates/*")
+
+	apiKey := os.Getenv("API_SECRET_KEY")
+	r.Use(func(c *gin.Context) {
+		if !strings.HasPrefix(c.Request.URL.Path, "/api/") {
+			c.Next()
+			return
+		}
+		if apiKey != "" && c.GetHeader("X-API-Key") != apiKey {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+		c.Next()
+	})
 
 	r.GET("/", func(c *gin.Context) {
 		c.Redirect(http.StatusMovedPermanently, "/app")

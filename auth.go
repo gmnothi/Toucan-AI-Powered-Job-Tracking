@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"encoding/gob"
 	"encoding/hex"
 	"encoding/json"
 	"io"
@@ -23,6 +24,7 @@ var (
 const sessionName = "toucan_session"
 
 func InitAuth() {
+	gob.Register(int(0))
 	sessionStore = sessions.NewCookieStore([]byte(os.Getenv("SESSION_SECRET")))
 	sessionStore.Options = &sessions.Options{
 		Path:     "/",

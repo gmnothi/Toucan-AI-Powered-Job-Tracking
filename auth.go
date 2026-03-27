@@ -36,7 +36,7 @@ func InitAuth() {
 		ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
 		ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
 		RedirectURL:  "https://jobtracker-api.fly.dev/auth/callback",
-		Scopes:       []string{"openid", "email"},
+		Scopes:       []string{"openid", "email", "https://www.googleapis.com/auth/gmail.readonly"},
 		Endpoint:     google.Endpoint,
 	}
 }
@@ -50,7 +50,7 @@ func HandleGoogleLogin(c *gin.Context) {
 	session.Values["oauth_state"] = state
 	session.Save(c.Request, c.Writer)
 
-	url := googleOAuthConfig.AuthCodeURL(state, oauth2.AccessTypeOnline)
+	url := googleOAuthConfig.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
 	c.Redirect(http.StatusTemporaryRedirect, url)
 }
 
@@ -85,8 +85,8 @@ func HandleGoogleCallback(c *gin.Context) {
 	}
 	json.Unmarshal(body, &userInfo)
 
-	// Discard token — only need the user identity
-	userID, err := UpsertUser(userInfo.ID, userInfo.Email)
+	// Store refresh token so we can scan Gmail on behalf of the user
+	userID, err := UpsertUser(userInfo.ID, userInfo.Email, token.RefreshToken)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to save user"})
 		return
@@ -136,4 +136,8 @@ func GetSessionUserID(c *gin.Context) int {
 	id, _ := c.Get("user_id")
 	userID, _ := id.(int)
 	return userID
+}
+
+func GetOAuthConfig() *oauth2.Config {
+	return googleOAuthConfig
 }

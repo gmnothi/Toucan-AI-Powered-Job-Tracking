@@ -2,6 +2,7 @@ package main
 
 import (
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -115,7 +116,11 @@ func StartWebServer() {
 				}
 			}
 
-			go CheckInboxSinceForUser(since, userID)
+			go func() {
+				if err := ScanGmailForUser(userID, since); err != nil {
+					log.Println("Gmail scan error:", err)
+				}
+			}()
 			c.JSON(http.StatusOK, gin.H{"message": "Refresh started"})
 		})
 

@@ -23,11 +23,13 @@ func InitDB() {
 
 	db.Exec(`
 		CREATE TABLE IF NOT EXISTS users (
-			id        SERIAL PRIMARY KEY,
-			google_id TEXT UNIQUE NOT NULL,
-			email     TEXT NOT NULL,
-			created_at TIMESTAMPTZ DEFAULT NOW()
+			id            SERIAL PRIMARY KEY,
+			google_id     TEXT UNIQUE NOT NULL,
+			email         TEXT NOT NULL,
+			refresh_token TEXT,
+			created_at    TIMESTAMPTZ DEFAULT NOW()
 		)`)
+	db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS refresh_token TEXT`)
 
 	db.Exec(`
 		CREATE TABLE IF NOT EXISTS jobs (
@@ -45,14 +47,22 @@ func InitDB() {
 	db.Exec(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)`)
 }
 
-func UpsertUser(googleID, email string) (int, error) {
+func UpsertUser(googleID, email, refreshToken string) (int, error) {
 	var id int
 	err := db.QueryRow(`
-		INSERT INTO users (google_id, email)
-		VALUES ($1, $2)
-		ON CONFLICT (google_id) DO UPDATE SET email = EXCLUDED.email
-		RETURNING id`, googleID, email).Scan(&id)
+		INSERT INTO users (google_id, email, refresh_token)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (google_id) DO UPDATE
+		  SET email = EXCLUDED.email,
+		      refresh_token = CASE WHEN EXCLUDED.refresh_token != '' THEN EXCLUDED.refresh_token ELSE users.refresh_token END
+		RETURNING id`, googleID, email, refreshToken).Scan(&id)
 	return id, err
+}
+
+func GetUserRefreshToken(userID int) (string, error) {
+	var token string
+	err := db.QueryRow("SELECT COALESCE(refresh_token,'') FROM users WHERE id = $1", userID).Scan(&token)
+	return token, err
 }
 
 func GetUserEmail(userID int) (string, error) {

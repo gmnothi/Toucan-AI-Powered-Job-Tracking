@@ -8,12 +8,13 @@ import (
 )
 
 func init() {
-	godotenv.Load() // no-op in production where env vars are set directly
+	godotenv.Load()
 	log.Println("GMAIL_USER =", os.Getenv("GMAIL_USER"))
 }
 
 func main() {
 	TestOpenAI()
 	InitDB()
+	InitAuth()
 	StartWebServer()
 }

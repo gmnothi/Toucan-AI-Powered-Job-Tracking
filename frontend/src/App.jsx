@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { getJobs, deleteJob, updateJobStatus, triggerRefresh, getStatus, togglePause } from './api';
+import { getJobs, deleteJob, updateJobStatus, triggerRefresh, getStatus, togglePause, getMe, logout } from './api';
 import './App.css';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import EmailModal from './components/EmailModal';
 import Terminal from './components/Terminal';
 import ToucanPeek from './components/ToucanPeek';
 import LoadingScreen from './components/LoadingScreen';
+import LoginPage from './components/LoginPage';
 
 const STATUS_CONFIG = {
   applied:   { label: 'Applied',      className: 'status-applied',   col: 'col-applied' },
@@ -55,6 +56,8 @@ const StatCard = ({ label, count, colorClass }) => (
 );
 
 export default function App() {
+  const [authState, setAuthState] = useState('loading');
+  const [currentUser, setCurrentUser] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -81,7 +84,15 @@ export default function App() {
     }
   };
 
-  useEffect(() => { fetchJobs(); }, []);
+  useEffect(() => {
+    getMe()
+      .then(data => { setCurrentUser(data); setAuthState('authenticated'); })
+      .catch(() => setAuthState('unauthenticated'));
+  }, []);
+
+  useEffect(() => {
+    if (authState === 'authenticated') fetchJobs();
+  }, [authState]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -156,6 +167,8 @@ export default function App() {
     return acc;
   }, {}), [jobs, dateSort]);
 
+  if (authState === 'loading') return <LoadingScreen />;
+  if (authState === 'unauthenticated') return <LoginPage />;
   if (loading) return <LoadingScreen />;
 
   if (error) return (
@@ -229,6 +242,16 @@ export default function App() {
             >
               <TerminalIcon /> Logs
             </button>
+
+            <div className="flex items-center gap-2 pl-2 border-l border-pink-100">
+              <span className="text-xs text-gray-400">{currentUser?.email}</span>
+              <button
+                onClick={async () => { await logout(); setAuthState('unauthenticated'); }}
+                className="text-xs text-gray-400 hover:text-red-400 transition-colors"
+              >
+                Sign out
+              </button>
+            </div>
           </div>
         </div>
 

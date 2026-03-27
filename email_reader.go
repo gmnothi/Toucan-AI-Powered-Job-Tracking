@@ -78,14 +78,22 @@ func getConfiguredAccounts() []inboxAccount {
 	return accounts
 }
 
-func CheckInbox() {
-	CheckInboxSince(time.Time{})
+func CheckInboxSinceForUser(since time.Time, userID int) {
+	checkInbox(since, userID)
 }
 
 func CheckInboxSince(since time.Time) {
+	checkInbox(since, 0)
+}
+
+func CheckInbox() {
+	checkInbox(time.Time{}, 0)
+}
+
+func checkInbox(since time.Time, userID int) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("Panic recovered in CheckInboxSince: %v", r)
+			log.Printf("Panic recovered in checkInbox: %v", r)
 		}
 	}()
 
@@ -114,7 +122,7 @@ func CheckInboxSince(since time.Time) {
 			log.Println(msg)
 			LogInfo(msg)
 		}
-		checkInboxForAccount(acc, since)
+		checkInboxForAccount(acc, since, userID)
 	}
 
 	Progress.mu.Lock()
@@ -122,7 +130,7 @@ func CheckInboxSince(since time.Time) {
 	Progress.mu.Unlock()
 }
 
-func checkInboxForAccount(acc inboxAccount, since time.Time) {
+func checkInboxForAccount(acc inboxAccount, since time.Time, userID int) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("Panic recovered in checkInboxForAccount (%s): %v", acc.label, r)
@@ -261,7 +269,7 @@ func checkInboxForAccount(acc inboxAccount, since time.Time) {
 			if isCareerDomain(fromAddress) {
 				messageID := msg.Envelope.MessageId
 
-				if JobExists(messageID) {
+				if JobExists(messageID, userID) {
 					return
 				}
 
@@ -290,8 +298,8 @@ func checkInboxForAccount(acc inboxAccount, since time.Time) {
 							log.Printf("[%s] Panic in SaveJob: %v", acc.label, r)
 						}
 					}()
-					if existing := FindJobByCompanyTitle(company, title); existing != nil {
-						UpdateJobStatusAndEmail(existing.ID, status, messageID, subject, body)
+					if existing := FindJobByCompanyTitle(company, title, userID); existing != nil {
+						UpdateJobStatusAndEmail(existing.ID, status, messageID, subject, body, userID)
 						LogFlagged(company, title, status+" (updated)")
 					} else {
 						SaveJob(Job{
@@ -302,7 +310,7 @@ func checkInboxForAccount(acc inboxAccount, since time.Time) {
 							Date:    dateStr,
 							Subject: subject,
 							Body:    body,
-						})
+						}, userID)
 					}
 					Progress.mu.Lock()
 					Progress.Saved++

@@ -21,33 +21,61 @@ func InitDB() {
 		log.Fatal("Cannot connect to database:", err)
 	}
 
-	createTable := `
-	CREATE TABLE IF NOT EXISTS jobs (
-		id SERIAL PRIMARY KEY,
-		company TEXT,
-		title TEXT,
-		status TEXT,
-		email_id TEXT UNIQUE,
-		date TEXT,
-		subject TEXT,
-		body TEXT
-	);`
-	_, err = db.Exec(createTable)
-	if err != nil {
-		log.Fatal(err)
-	}
+	db.Exec(`
+		CREATE TABLE IF NOT EXISTS users (
+			id        SERIAL PRIMARY KEY,
+			google_id TEXT UNIQUE NOT NULL,
+			email     TEXT NOT NULL,
+			created_at TIMESTAMPTZ DEFAULT NOW()
+		)`)
+
+	db.Exec(`
+		CREATE TABLE IF NOT EXISTS jobs (
+			id       SERIAL PRIMARY KEY,
+			company  TEXT,
+			title    TEXT,
+			status   TEXT,
+			email_id TEXT UNIQUE,
+			date     TEXT,
+			subject  TEXT,
+			body     TEXT,
+			user_id  INTEGER REFERENCES users(id)
+		)`)
+
+	db.Exec(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)`)
 }
 
-func SaveJob(job Job) {
-	stmt, _ := db.Prepare("INSERT INTO jobs(company, title, status, email_id, date, subject, body) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (email_id) DO NOTHING")
-	_, err := stmt.Exec(job.Company, job.Title, job.Status, job.EmailID, job.Date, job.Subject, job.Body)
+func UpsertUser(googleID, email string) (int, error) {
+	var id int
+	err := db.QueryRow(`
+		INSERT INTO users (google_id, email)
+		VALUES ($1, $2)
+		ON CONFLICT (google_id) DO UPDATE SET email = EXCLUDED.email
+		RETURNING id`, googleID, email).Scan(&id)
+	return id, err
+}
+
+func GetUserEmail(userID int) (string, error) {
+	var email string
+	err := db.QueryRow("SELECT email FROM users WHERE id = $1", userID).Scan(&email)
+	return email, err
+}
+
+func SaveJob(job Job, userID int) {
+	stmt, _ := db.Prepare(`
+		INSERT INTO jobs(company, title, status, email_id, date, subject, body, user_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (email_id) DO NOTHING`)
+	_, err := stmt.Exec(job.Company, job.Title, job.Status, job.EmailID, job.Date, job.Subject, job.Body, userID)
 	if err != nil {
 		log.Println("Failed to insert job:", err)
 	}
 }
 
-func GetAllJobs() []Job {
-	rows, _ := db.Query("SELECT id, company, title, status, email_id, date, COALESCE(subject,''), COALESCE(body,'') FROM jobs")
+func GetJobsForUser(userID int) []Job {
+	rows, _ := db.Query(`
+		SELECT id, company, title, status, email_id, date, COALESCE(subject,''), COALESCE(body,'')
+		FROM jobs WHERE user_id = $1`, userID)
 	defer rows.Close()
 
 	var jobs []Job
@@ -68,34 +96,35 @@ func ClearJobs() {
 	}
 }
 
-func JobExists(emailID string) bool {
+func JobExists(emailID string, userID int) bool {
 	var count int
-	db.QueryRow("SELECT COUNT(1) FROM jobs WHERE email_id = $1", emailID).Scan(&count)
+	db.QueryRow("SELECT COUNT(1) FROM jobs WHERE email_id = $1 AND user_id = $2", emailID, userID).Scan(&count)
 	return count > 0
 }
 
-func FindJobByCompanyTitle(company, title string) *Job {
+func FindJobByCompanyTitle(company, title string, userID int) *Job {
 	var job Job
-	err := db.QueryRow(
-		"SELECT id, company, title, status, email_id, date, COALESCE(subject,''), COALESCE(body,'') FROM jobs WHERE LOWER(company)=LOWER($1) AND LOWER(title)=LOWER($2)",
-		company, title,
-	).Scan(&job.ID, &job.Company, &job.Title, &job.Status, &job.EmailID, &job.Date, &job.Subject, &job.Body)
+	err := db.QueryRow(`
+		SELECT id, company, title, status, email_id, date, COALESCE(subject,''), COALESCE(body,'')
+		FROM jobs WHERE LOWER(company)=LOWER($1) AND LOWER(title)=LOWER($2) AND user_id = $3`,
+		company, title, userID).Scan(&job.ID, &job.Company, &job.Title, &job.Status, &job.EmailID, &job.Date, &job.Subject, &job.Body)
 	if err != nil {
 		return nil
 	}
 	return &job
 }
 
-func UpdateJobStatusAndEmail(id int, status, emailID, subject, body string) {
-	db.Exec("UPDATE jobs SET status=$1, email_id=$2, subject=$3, body=$4 WHERE id=$5", status, emailID, subject, body, id)
+func UpdateJobStatusAndEmail(id int, status, emailID, subject, body string, userID int) {
+	db.Exec("UPDATE jobs SET status=$1, email_id=$2, subject=$3, body=$4 WHERE id=$5 AND user_id=$6",
+		status, emailID, subject, body, id, userID)
 }
 
-func DeleteJob(id string) error {
-	_, err := db.Exec("DELETE FROM jobs WHERE id = $1", id)
+func DeleteJob(id string, userID int) error {
+	_, err := db.Exec("DELETE FROM jobs WHERE id = $1 AND user_id = $2", id, userID)
 	return err
 }
 
-func UpdateJobStatus(id string, status string) error {
-	_, err := db.Exec("UPDATE jobs SET status = $1 WHERE id = $2", status, id)
+func UpdateJobStatus(id string, status string, userID int) error {
+	_, err := db.Exec("UPDATE jobs SET status = $1 WHERE id = $2 AND user_id = $3", status, id, userID)
 	return err
 }

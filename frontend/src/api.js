@@ -1,32 +1,34 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
+const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
+const AUTH_BASE = BASE.replace('/api', '');
 
 const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-    'X-API-Key': import.meta.env.VITE_API_SECRET_KEY || '',
-  },
+  baseURL: BASE,
+  withCredentials: true,
+  headers: { 'Content-Type': 'application/json' },
 });
 
+export const getMe = async () => {
+  const response = await api.get(`${AUTH_BASE}/auth/me`);
+  return response.data;
+};
+
+export const logout = async () => {
+  await api.post(`${AUTH_BASE}/auth/logout`);
+};
+
+export const loginWithGoogle = () => {
+  window.location.href = `${AUTH_BASE}/auth/google`;
+};
+
 export const getJobs = async () => {
-  try {
-    const response = await api.get('/jobs');
-    return response.data;
-  } catch (error) {
-    console.error('Error fetching jobs:', error);
-    throw error;
-  }
+  const response = await api.get('/jobs');
+  return response.data;
 };
 
 export const deleteJob = async (jobId) => {
-  try {
-    await api.delete(`/jobs/${jobId}`);
-  } catch (error) {
-    console.error('Error deleting job:', error);
-    throw error;
-  }
+  await api.delete(`/jobs/${jobId}`);
 };
 
 export const getStatus = async () => {
@@ -40,19 +42,9 @@ export const togglePause = async () => {
 };
 
 export const triggerRefresh = async (since = '') => {
-  try {
-    await api.post('/refresh', since ? { since } : {});
-  } catch (error) {
-    console.error('Error triggering refresh:', error);
-    throw error;
-  }
+  await api.post('/refresh', since ? { since } : {});
 };
 
 export const updateJobStatus = async (jobId, status) => {
-  try {
-    await api.put(`/jobs/${jobId}/status`, { status });
-  } catch (error) {
-    console.error('Error updating job status:', error);
-    throw error;
-  }
-}; 
+  await api.put(`/jobs/${jobId}/status`, { status });
+};

@@ -3,10 +3,21 @@ import axios from 'axios';
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
 const AUTH_BASE = BASE.replace('/api', '');
 
+const TOKEN_KEY = 'toucan_token';
+
+export const saveToken = (token) => localStorage.setItem(TOKEN_KEY, token);
+export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
+const getToken = () => localStorage.getItem(TOKEN_KEY);
+
 const api = axios.create({
   baseURL: BASE,
-  withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
+});
+
+api.interceptors.request.use((config) => {
+  const token = getToken();
+  if (token) config.headers['Authorization'] = `Bearer ${token}`;
+  return config;
 });
 
 export const getMe = async () => {
@@ -16,6 +27,7 @@ export const getMe = async () => {
 
 export const logout = async () => {
   await api.post(`${AUTH_BASE}/auth/logout`);
+  clearToken();
 };
 
 export const loginWithGoogle = () => {

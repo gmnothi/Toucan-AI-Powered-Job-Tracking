@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { getJobs, deleteJob, updateJobStatus, triggerRefresh, getStatus, togglePause, getMe, logout } from './api';
+import { getJobs, deleteJob, updateJobStatus, triggerRefresh, getStatus, togglePause, getMe, logout, saveToken } from './api';
 import './App.css';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import EmailModal from './components/EmailModal';
@@ -85,6 +85,14 @@ export default function App() {
   };
 
   useEffect(() => {
+    // Pick up token from URL after OAuth redirect
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+    if (token) {
+      saveToken(token);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+
     getMe()
       .then(data => { setCurrentUser(data); setAuthState('authenticated'); })
       .catch(() => setAuthState('unauthenticated'));
